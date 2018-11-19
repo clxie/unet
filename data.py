@@ -5,6 +5,8 @@ import os
 import glob
 import skimage.io as io
 import skimage.transform as trans
+import shutil
+import PIL.Image as Image
 
 Sky = [128,128,128]
 Building = [128,0,0]
@@ -22,6 +24,9 @@ Unlabelled = [0,0,0]
 COLOR_DICT = np.array([Sky, Building, Pole, Road, Pavement,
                           Tree, SignSymbol, Fence, Car, Pedestrian, Bicyclist, Unlabelled])
 
+White = [255,255,255]
+Black = [0,0,0]
+COLOR_DICT2 = np.array([White,Black])
 
 def adjustData(img,mask,flag_multi_class,num_class):
     if(flag_multi_class):
@@ -42,7 +47,6 @@ def adjustData(img,mask,flag_multi_class,num_class):
         mask[mask > 0.5] = 1
         mask[mask <= 0.5] = 0
     return (img,mask)
-
 
 
 def trainGenerator(batch_size,train_path,image_folder,mask_folder,aug_dict,image_color_mode = "grayscale",
@@ -80,14 +84,39 @@ def trainGenerator(batch_size,train_path,image_folder,mask_folder,aug_dict,image
         img,mask = adjustData(img,mask,flag_multi_class,num_class)
         yield (img,mask)
 
-
+#def trainGenerator2(batch_size,train_path,image_folder,label_folder,aug_dict,image_color_mode = "grayscale",
+#                    mask_color_mode = "grayscale",image_save_prefix  = "image",mask_save_prefix  = "mask",
+#                    flag_multi_class = False,num_class = 2,save_to_dir = None,target_size = (256,256),seed = 1):
+def trainGenerator2(imgspath,labelspath):
+    lsts = os.listdir(imgspath)
+    for i in range(len(lsts)):
+        imgpath = imgspath + '/' + lsts[i]
+        labelpath = labelspath + '/' + lsts[i]
+        img = io.imread(imgpath,as_gray=True)
+        img = np.reshape(img,(img.shape + (1,)))
+        label = io.imread(labelpath,as_gray=True)
+        label = label/255
+        label = np.reshape(label,(label + (1,)))
+        yield (img,label)
 
 def testGenerator(test_path,num_image = 30,target_size = (256,256),flag_multi_class = False,as_gray = True):
-    for i in range(num_image):
-        img = io.imread(os.path.join(test_path,"%d.png"%i),as_gray = as_gray)
+    lsts = os.listdir(test_path)
+    #for i in range(num_image):
+    for i in range(len(lsts)):
+        #img = io.imread(os.path.join(test_path,"%d.png"%i),as_gray = as_gray)
+        img = io.imread(os.path.join(test_path,lsts[i]),as_gray = as_gray)
         img = img / 255
         img = trans.resize(img,target_size)
         img = np.reshape(img,img.shape+(1,)) if (not flag_multi_class) else img
+        img = np.reshape(img,(1,)+img.shape)
+        yield img
+
+def testGenerator2(test_path,target_size = (480,480)):
+    lsts = os.listdir(test_path)
+    for i in range(len(lsts)):
+        img = io.imread(os.path.join(test_path, lsts[i]),as_gray=True)
+        img = trans.resize(img,target_size)
+        img = np.reshape(img,img.shape+(1,))
         img = np.reshape(img,(1,)+img.shape)
         yield img
 
@@ -109,16 +138,52 @@ def geneTrainNpy(image_path,mask_path,flag_multi_class = False,num_class = 2,ima
     return image_arr,mask_arr
 
 
-def labelVisualize(num_class,color_dict,img):
-    img = img[:,:,0] if len(img.shape) == 3 else img
-    img_out = np.zeros(img.shape + (3,))
-    for i in range(num_class):
-        img_out[img == i,:] = color_dict[i]
-    return img_out / 255
+def labelVisualize(num_class,color_dict,img,single=3):
+    if single == 3:
+        img = img[:,:,0] if len(img.shape) == 3 else img
+        img_out = np.zeros(img.shape + (3,))
+        for i in range(num_class):
+            img_out[img == i,:] = color_dict[i]
+        return img_out
+    else:
+        img = img[:,:,0] if len(img.shape) == 3 else img
+        img_out = np.zeros(img.shape)
+        img_out[img <= 0] = 0
+        img_out[img >= 0.5] = 255
+        #for i in range(num_class):
+        #    if i == 0:
+        #        img_out[img == i] = 0
+        #    else:
+        #        img_out[img == i] = 255
+        return img_out
 
+def labelVisualize2(img):
+    sh = img.shape[:2]
+    img = np.reshape(img,sh)
+    img_out = np.zeros(img.shape)
+    img_out[img < 0.4] = 0
+    img_out[img >= 0.4] = 255
 
+    return img_out
 
-def saveResult(save_path,npyfile,flag_multi_class = False,num_class = 2):
+def saveResult(save_path,inputdir,npyfile,flag_multi_class = False,num_class = 2):
+    if os.path.exists(save_path):
+        shutil.rmtree(save_path)
+    os.mkdir(save_path)
+    lsts = os.listdir(inputdir)
     for i,item in enumerate(npyfile):
-        img = labelVisualize(num_class,COLOR_DICT,item) if flag_multi_class else item[:,:,0]
-        io.imsave(os.path.join(save_path,"%d_predict.png"%i),img)
+        img = labelVisualize(num_class,COLOR_DICT2,item, 0) if flag_multi_class else item[:,:,0]
+        io.imsave(os.path.join(save_path,lsts[i]),img)
+
+def saveResult2(save_path,inputdir,npyfile,flag_multi_class = False,num_class = 2):
+    if os.path.exists(save_path):
+        shutil.rmtree(save_path)
+    os.mkdir(save_path)
+    lsts = os.listdir(inputdir)
+    for i,item in enumerate(npyfile):
+        img = labelVisualize2(item)
+        img = Image.fromarray(img).convert('RGB')
+        p = save_path + '/' + lsts[i]
+        img.save(p)
+        #io.imsave(os.path.join(save_path,lsts[i]),img)
+
